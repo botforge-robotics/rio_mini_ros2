@@ -1,0 +1,40 @@
+# Sensor Thresholds for Desktop Companion Robot
+
+sensor_monitor_node:
+  ros__parameters:
+    # Battery Monitoring
+    battery:
+      low_threshold: 20.0 # Percentage
+      critical_threshold: 10.0 # Percentage
+      warning_threshold: 30.0 # Percentage
+
+    # IMU (Motion) Thresholds
+    imu:
+      tilt_threshold: 5.0 # m/s² for tilt detection
+      shake_threshold: 8.0 # m/s² for shake detection
+      orientation_threshold: 30.0 # degrees for orientation change
+
+    # TOF (Distance) Sensor
+    tof:
+      edge_threshold: 0.55 # meters (55cm)
+      proximity_threshold: 0.30 # meters (30cm)
+      max_range: 6.0 # meters
+      min_range: 0.15 # meters
+
+    # Illuminance Sensor
+    illuminance:
+      bright_threshold: 100.0 # lux
+      dim_threshold: 50.0 # lux
+      dark_threshold: 10.0 # lux
+
+    # GPS (if available)
+    gps:
+      accuracy_threshold: 5.0 # meters
+      update_timeout: 30.0 # seconds
+
+    # Speech Recognition
+    speech:
+      confidence_threshold: 0.7
+      timeout: 5.0 # seconds
+      min_length: 2 # characters
+      max_length: 200 # characters

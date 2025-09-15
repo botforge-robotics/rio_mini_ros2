@@ -1,0 +1,12 @@
+# LLM Configuration for Desktop Companion Robot
+
+ollama_node:
+  ros__parameters:
+    # Ollama Model Configuration
+    model: "llama3.1:8b"
+    temperature: 0.7
+    max_tokens: 1024
+    timeout: 30.0
+
+    # Context Management
+    max_conversation_history: 5
