@@ -9,13 +9,9 @@ Based on best practices from modern AI agent architectures.
 
 import rclpy
 from rclpy.node import Node
-from rclpy.executors import MultiThreadedExecutor
-from rclpy.callback_groups import ReentrantCallbackGroup
+# No callback groups needed - single threaded
 from std_msgs.msg import String, Bool, Empty
 import json
-import asyncio
-import threading
-import concurrent.futures
 import time
 import logging
 
@@ -35,7 +31,8 @@ class OllamaAgent:
     """Professional AI Agent for robot control with native Ollama tool support."""
 
     def __init__(self, model: str = "llama3-groq-tool-use:8b",
-                 temperature: float = 0.7, max_tokens: int = 1024, max_conversation_history: int = 5):
+                 temperature: float = 0.7, max_tokens: int = 1024, max_conversation_history: int = 5,
+                 max_linear_speed: float = 0.15, max_angular_speed: float = 2.0, inplace_rotation_speed: float = 7.0):
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -43,10 +40,17 @@ class OllamaAgent:
         self.conversation_history = []
         self.tools = get_robot_tools()
 
+        # Movement parameters
+        self.max_linear_speed = max_linear_speed
+        self.max_angular_speed = max_angular_speed
+        self.inplace_rotation_speed = inplace_rotation_speed
+
         # Initialize Ollama client
         self.ollama_client = ollama.Client()
 
         logger.info(f"OllamaAgent initialized with model: {model}")
+        logger.info(
+            f"Movement params: linear={max_linear_speed}, angular={max_angular_speed}, inplace={inplace_rotation_speed}")
         logger.info(
             f"Available tools: {', '.join(tool['function']['name'] for tool in self.tools)}")
 
@@ -77,109 +81,44 @@ class OllamaAgent:
         # Keep system message + last max_history messages
         system_msg = conversation[0] if conversation and conversation[0].get(
             'role') == 'system' else None
-        recent_messages = conversation[-(max_history)                                       :] if system_msg else conversation[-max_history:]
+        recent_messages = conversation[-(max_history):] if system_msg else conversation[-max_history:]
 
         if system_msg:
             return [system_msg] + recent_messages
         return recent_messages
 
-    async def process_with_llm(self, user_input: str) -> str:
+    def process_with_llm(self, user_input: str) -> str:
         """Process user input with LLM using professional agent loop."""
-        system_prompt = """You are RIO, an intelligent desktop companion robot with voice interaction capabilities.
+        # Mistral raw mode format for proper tool calling
+        system_prompt = f"""[AVAILABLE_TOOLS] {json.dumps(self.tools)}[/AVAILABLE_TOOLS]
 
-CRITICAL RULES FOR TOOL USAGE:
-1. ALWAYS use proper JSON tool calling format - NEVER use text-based tool formats
-2. MANDATORY: You MUST use speak_text tool for EVERY response - this is a VOICE-ONLY system
-3. NEVER respond with plain text - the user can only hear your voice, not read text
-4. If asked to do something (like "turn on torch"), BOTH perform the action AND speak about it
-5. For natural language requests like "it's dark" or "I can't see", recognize implied intent and turn on torch
-6. Match your expression to your speech content (happy speech = happy expression)
-7. EVERY response must include speak_text - there is no other way to communicate with the user
+You are RIO, a desktop companion robot. You MUST use speak_text for every response - this is voice-only.
 
-TOOL INSTRUCTIONS - READ CAREFULLY:
-- DO NOT respond with plain text in asterisks like: *speak_text("Hello")*
-- DO NOT respond with JSON-formatted text like: {"name": "speak_text", "parameters": {"text": "Hello"}}
-- DO NOT respond with function call format like: {speak_text("Hello")}
-- DO NOT respond with any text that is not a proper tool call
-- INSTEAD, use the proper native tool calling mechanism of the model
-- REMEMBER: User can only hear your voice - you MUST use speak_text for every response
+RESPONSE FORMAT: Return ONLY a JSON array of tool calls. Do not include any other text.
 
-AVAILABLE TOOLS:
-- speak_text - Make robot speak (MANDATORY for all responses)
-  - parameters: {"text": "your speech text here"}
+MOVEMENT RULES:
+- For forward/backward movement: use linear_x (-{self.max_linear_speed} to {self.max_linear_speed} m/s)
+- For rotation while moving: use angular_z (-{self.max_angular_speed} to {self.max_angular_speed} rad/s)
+- For in-place rotation (linear_x=0): use angular_z={self.inplace_rotation_speed} rad/s for faster turning
 
-- set_torch - Turn torch on/off (Note: renamed from toggle_torch)
-  - parameters: {"on": true} or {"on": false}
-  - Use for phrases like "turn on torch", "it's dark", "I can't see", etc.
+HEAD MOVEMENT RULES:
+- Head pitch angle: 150-180 degrees ONLY
+- 150° = head up (looking up)
+- 165° = head front (neutral position)
+- 180° = head down (looking down)
+- NEVER use angles outside 150-180 range
 
-- move_robot - Move the robot
-  - parameters: {"linear_x": float, "linear_y": float, "angular_z": float}
+CORRECT FORMAT:
+[{{"name": "tool_name", "arguments": {{"param": "value"}}}}]
 
-- set_expression - Set facial expression
-  - parameters: {"expression": "happy"|"sad"|"neutral"|"surprised"|"thinking"}
+EXAMPLES:
+- "turn on torch" → [{{"name": "speak_text", "arguments": {{"text": "Turning on torch"}}}}, {{"name": "set_torch", "arguments": {{"on": true}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
+- "turn right" → [{{"name": "speak_text", "arguments": {{"text": "Turning right"}}}}, {{"name": "move_with_duration", "arguments": {{"linear_x": 0, "angular_z": {self.inplace_rotation_speed}, "duration": 0.5}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
+- "move forward" → [{{"name": "speak_text", "arguments": {{"text": "Moving forward"}}}}, {{"name": "move_with_duration", "arguments": {{"linear_x": {self.max_linear_speed}, "angular_z": 0, "duration": 0.5}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
+- "look up" → [{{"name": "speak_text", "arguments": {{"text": "Looking up"}}}}, {{"name": "control_head_pitch", "arguments": {{"angle": 150}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
+- "look down" → [{{"name": "speak_text", "arguments": {{"text": "Looking down"}}}}, {{"name": "control_head_pitch", "arguments": {{"angle": 180}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
 
-- set_led_color - Set LED color
-  - parameters: {"color": "red"|"green"|"blue"|"yellow"|"purple"|"cyan"|"white"|"off"}
-
-- control_head_pitch - Control head movement
-  - parameters: {"angle": integer} (-30 to 30 degrees)
-
-- enable_camera - Enable/disable camera
-  - parameters: {"enable": true} or {"enable": false}
-
-- biometric_authentication - Perform biometric authentication using biometric sensors (fingerprint, face, etc.)
-  - parameters: {"message": "optional message to display during authentication"}
-  - Returns success/failure status
-
-EXAMPLES OF USER REQUESTS AND HOW TO HANDLE THEM:
-1. User says: "turn on torch" or "it's dark here" or "I can't see"
-   - MUST call: speak_text, set_torch (on=true), and set_expression tools
-   - Example: speak_text("I'll turn on the torch"), set_torch(on=true), set_expression("happy")
-
-2. User says: "turn off torch" or "it's too bright"
-   - MUST call: speak_text, set_torch (on=false), and set_expression tools
-   - Example: speak_text("I'll turn off the torch"), set_torch(on=false), set_expression("neutral")
-
-3. User says: "see you later and turn off the torch"
-   - MUST call: speak_text, set_torch (on=false), and set_expression tools
-   - Example: speak_text("See you later! I'll turn off the torch"), set_torch(on=false), set_expression("sad")
-
-4. User says: "good morning" or general greeting
-   - Respond by calling speak_text and set_expression tools
-
-5. User says: "turn on torch but before please authenticate with biometric"
-   - FIRST: Call speak_text to ask for biometric authentication
-   - THEN: Call biometric_authentication tool
-   - ONLY AFTER biometric success: Call set_torch and other requested actions
-
-CRITICAL ACTION WORKFLOW:
-- When user requests an action (like "turn off torch"), you MUST:
-  1. Call speak_text to inform user what you're doing
-  2. Call the actual action tool (set_torch, move_robot, etc.)
-  3. Call set_expression to match the action
-  4. NEVER just speak without performing the action
-
-CRITICAL BIOMETRIC WORKFLOW:
-- If user requests biometric authentication, you MUST:
-  1. First ask user to perform authentication (speak_text)
-  2. Call biometric_authentication tool with appropriate message
-  3. Wait for biometric_authentication result
-  4. ONLY if authentication succeeds, proceed with other requested actions
-  5. If authentication fails, inform user and do NOT proceed with other actions
-
-IMPORTANT: Use ONLY native tool calling format. NEVER respond with JSON text like:
-- {"name": "tool_name", "parameters": {...}}
-- Any text-based tool call formats
-- Always use the proper native tool calling mechanism
-
-CRITICAL COMMUNICATION RULE:
-- This is a VOICE-ONLY system - the user cannot see any text
-- You MUST use speak_text tool for EVERY response - there is no other way to communicate
-- NEVER respond with plain text, JSON, or any format that is not a proper tool call
-- If you don't use speak_text, the user will hear nothing
-- Every single response must include speak_text - this is mandatory
-
-Use only the native JSON tool format that is built into the model architecture."""
+IMPORTANT: Return ONLY the JSON array. No explanations, no additional text."""
 
         # Add user input to conversation
         self.conversation_history.append(
@@ -205,33 +144,65 @@ Use only the native JSON tool format that is built into the model architecture."
                     logger.info(
                         f"Tool: {tool['function']['name']} - {tool['function']['description']}")
 
-                # Call Ollama with tools
-                response = self.ollama_client.chat(
-                    model=self.model,
-                    messages=messages,
-                    tools=self.tools,
-                    options={
-                        'temperature': self.temperature,
-                        'num_predict': self.max_tokens
-                    }
-                )
+                # Measure Ollama response time
+                ollama_start_time = time.time()
+                logger.info(f"Calling Ollama at {ollama_start_time:.3f}")
 
+                # Call Ollama with tools (use raw mode for Mistral)
+                if 'mistral' in self.model.lower():
+                    # Use raw mode for Mistral - convert messages to single prompt
+                    prompt = self._convert_messages_to_prompt(messages)
+                    response = self.ollama_client.generate(
+                        model=self.model,
+                        prompt=prompt,
+                        options={
+                            'temperature': self.temperature,
+                            'num_predict': self.max_tokens,
+                            'raw': True
+                        }
+                    )
+                else:
+                    # Use standard tool calling for other models
+                    response = self.ollama_client.chat(
+                        model=self.model,
+                        messages=messages,
+                        tools=self.tools,
+                        options={
+                            'temperature': self.temperature,
+                            'num_predict': self.max_tokens
+                        }
+                    )
+
+                ollama_end_time = time.time()
+                ollama_duration = ollama_end_time - ollama_start_time
+                logger.info(
+                    f"Ollama response received at {ollama_end_time:.3f}")
+                logger.info(
+                    f"Ollama response time: {ollama_duration:.3f} seconds")
                 logger.info(f"Ollama Response: {response}")
 
                 # Extract assistant message from Ollama response
-                # Ollama returns a dict with message field containing role and content
-                content = response.get("message", {}).get("content", "")
-                assistant_message = {
-                    "role": "assistant",
-                    "content": content
-                }
+                if 'mistral' in self.model.lower():
+                    # Raw mode response format
+                    content = response.get("response", "")
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": content
+                    }
+                else:
+                    # Standard chat response format
+                    content = response.get("message", {}).get("content", "")
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": content
+                    }
 
                 # Add assistant message to conversation
                 self.conversation_history.append(assistant_message)
                 messages.append(assistant_message)
 
                 # Check for tool calls
-                tool_calls = self._extract_tool_calls(response)
+                tool_calls = self._extract_tool_calls(response, content)
 
                 # llama3.1:8b supports proper tool calling, so we should get tool_calls in response
 
@@ -328,85 +299,78 @@ Use only the native JSON tool format that is built into the model architecture."
 
         return f"Completed {max_iterations} iterations without a final answer."
 
-    def _extract_tool_calls(self, response):
+    def _extract_tool_calls(self, response, content=None):
         """Extract tool calls from Ollama response."""
-        # Ollama returns tool_calls in the message field
-        # Format: response["message"]["tool_calls"]
-        message = response.get("message", {})
-        content = message.get("content", "")
-        tool_calls = message.get("tool_calls", [])
+        if content is None:
+            # Fallback to extracting from response structure
+            message = response.get("message", {})
+            content = message.get("content", "")
+
+        tool_calls = response.get("tool_calls", [])
 
         # Handle None case for tool_calls
         if tool_calls is None:
             tool_calls = []
 
-        # If we have no tool_calls but we have content, try to parse it as JSON tool call
+        # If we have no tool_calls but we have content, try to parse Mistral's format
         if not tool_calls and content:
-            # Check for multiple JSON objects separated by newlines
-            lines = content.strip().split('\n')
-            for line in lines:
-                line = line.strip()
-                if line.startswith('{') and line.endswith('}'):
-                    try:
-                        # Try to parse as JSON
-                        json_content = json.loads(line)
-                        if isinstance(json_content, dict) and 'name' in json_content and 'parameters' in json_content:
-                            # Format as a tool call
+            import re
+            logger.info(
+                f"Attempting to parse tool calls from content: {content[:200]}...")
+
+            # First try [TOOL_CALLS] format
+            tool_calls_pattern = r'\[TOOL_CALLS\]\s*(\[.*?\])'
+            match = re.search(tool_calls_pattern, content, re.DOTALL)
+
+            if match:
+                try:
+                    # Parse the JSON array of tool calls
+                    tool_calls_json = json.loads(match.group(1))
+                    for tool_call in tool_calls_json:
+                        if isinstance(tool_call, dict) and 'name' in tool_call and 'arguments' in tool_call:
                             tool_calls.append({
                                 'function': {
-                                    'name': json_content['name'],
-                                    'arguments': json_content['parameters']
+                                    'name': tool_call['name'],
+                                    'arguments': tool_call['arguments']
                                 }
                             })
                             logger.info(
-                                f"Parsed JSON content as tool call: {json_content['name']}")
-                    except json.JSONDecodeError:
-                        logger.info(f"Line is not valid JSON: {line}")
+                                f"Parsed Mistral tool call: {tool_call['name']}")
+                except json.JSONDecodeError as e:
+                    logger.info(f"Could not parse Mistral tool calls: {e}")
+                    logger.info(f"Raw content: {match.group(1)}")
+            else:
+                # Fallback: Try to parse direct JSON array format that Mistral is actually returning
+                # Look for JSON array anywhere in the content
+                json_array_pattern = r'\[.*?\]'
+                matches = re.findall(json_array_pattern, content, re.DOTALL)
 
-            # Also check for function call format like: speak_text({"text": "message"})
-            import re
-            function_call_pattern = r'(\w+)\(\{([^}]+)\}\)'
-            matches = re.findall(function_call_pattern, content)
-            for func_name, args_str in matches:
-                try:
-                    # Try to parse the arguments as JSON
-                    args_dict = json.loads('{' + args_str + '}')
-                    tool_calls.append({
-                        'function': {
-                            'name': func_name,
-                            'arguments': args_dict
-                        }
-                    })
-                    logger.info(f"Parsed function call format: {func_name}")
-                except json.JSONDecodeError:
+                # Try each JSON array found
+                for json_str in matches:
+                    try:
+                        # Parse the JSON array of tool calls
+                        tool_calls_json = json.loads(json_str)
+                        if isinstance(tool_calls_json, list):
+                            for tool_call in tool_calls_json:
+                                if isinstance(tool_call, dict) and 'name' in tool_call and 'arguments' in tool_call:
+                                    tool_calls.append({
+                                        'function': {
+                                            'name': tool_call['name'],
+                                            'arguments': tool_call['arguments']
+                                        }
+                                    })
+                                    logger.info(
+                                        f"Parsed Mistral JSON array tool call: {tool_call['name']}")
+                            # If we found valid tool calls, break
+                            if tool_calls:
+                                break
+                    except json.JSONDecodeError as e:
+                        logger.info(f"Could not parse JSON array: {e}")
+                        continue
+
+                if not tool_calls:
                     logger.info(
-                        f"Could not parse function call arguments: {args_str}")
-
-            # Check for curly brace format like: {speak_text("message")}
-            curly_brace_pattern = r'\{(\w+)\(\"([^"]+)\"\)\}'
-            curly_matches = re.findall(curly_brace_pattern, content)
-            for func_name, message in curly_matches:
-                tool_calls.append({
-                    'function': {
-                        'name': func_name,
-                        'arguments': {'text': message}
-                    }
-                })
-                logger.info(
-                    f"Parsed curly brace format: {func_name} with message: {message}")
-
-            # Check for simple function call format like: speak_text("message")
-            simple_function_pattern = r'(\w+)\(\"([^"]+)\"\)'
-            simple_matches = re.findall(simple_function_pattern, content)
-            for func_name, message in simple_matches:
-                tool_calls.append({
-                    'function': {
-                        'name': func_name,
-                        'arguments': {'text': message}
-                    }
-                })
-                logger.info(
-                    f"Parsed simple function format: {func_name} with message: {message}")
+                        "No valid JSON array tool calls found in response")
 
         # Convert to standard format
         formatted_tool_calls = []
@@ -422,6 +386,24 @@ Use only the native JSON tool format that is built into the model architecture."
                 formatted_tool_calls.append(tool_call)
 
         return formatted_tool_calls
+
+    def _convert_messages_to_prompt(self, messages):
+        """Convert messages to a single prompt for raw mode."""
+        prompt_parts = []
+        for message in messages:
+            role = message.get('role', '')
+            content = message.get('content', '')
+
+            if role == 'system':
+                prompt_parts.append(content)
+            elif role == 'user':
+                prompt_parts.append(f"[INST] {content} [/INST]")
+            elif role == 'assistant':
+                prompt_parts.append(content)
+            elif role == 'tool':
+                prompt_parts.append(f"Tool result: {content}")
+
+        return '\n\n'.join(prompt_parts)
 
     def cleanup(self):
         """Clean up resources."""
@@ -440,9 +422,18 @@ class OllamaNode(Node):
         # Declare parameters
         self.declare_parameter('model', 'llama3-groq-tool-use:8b')
         self.declare_parameter('temperature', 0.7)
-        self.declare_parameter('max_tokens', 1024)
+        self.declare_parameter('max_tokens', 256)
         self.declare_parameter('timeout', 30.0)
-        self.declare_parameter('max_conversation_history', 5)
+        self.declare_parameter('max_conversation_history', 2)
+
+        # Robot movement parameters
+        self.declare_parameter(
+            'robot_movement.movement.max_linear_speed', 0.15)
+        self.declare_parameter(
+            'robot_movement.movement.max_angular_speed', 2.0)
+        self.declare_parameter(
+            'robot_movement.movement.inplace_rotation_speed', 7.0)
+        self.declare_parameter('robot_movement.movement.default_duration', 0.5)
 
         # Get parameters
         self.model = self.get_parameter('model').value
@@ -452,16 +443,33 @@ class OllamaNode(Node):
         self.max_conversation_history = self.get_parameter(
             'max_conversation_history').value
 
-        # Callback group for concurrent operations
-        self.callback_group = ReentrantCallbackGroup()
+        # Robot movement parameters
+        self.max_linear_speed = self.get_parameter(
+            'robot_movement.movement.max_linear_speed').value
+        self.max_angular_speed = self.get_parameter(
+            'robot_movement.movement.max_angular_speed').value
+        self.inplace_rotation_speed = self.get_parameter(
+            'robot_movement.movement.inplace_rotation_speed').value
+        self.default_duration = self.get_parameter(
+            'robot_movement.movement.default_duration').value
+
+        # Debug logging
+        self.get_logger().info(f"Loaded movement parameters:")
+        self.get_logger().info(f"  max_linear_speed: {self.max_linear_speed}")
+        self.get_logger().info(
+            f"  max_angular_speed: {self.max_angular_speed}")
+        self.get_logger().info(
+            f"  inplace_rotation_speed: {self.inplace_rotation_speed}")
+        self.get_logger().info(f"  default_duration: {self.default_duration}")
+
+        # No callback groups needed - single threaded processing
 
         # Speech recognition subscriber
         self.speech_subscription = self.create_subscription(
             String,
             '/speech_recognition/result',
             self.speech_callback,
-            10,
-            callback_group=self.callback_group
+            10
         )
 
         # Hotword detection subscriber
@@ -469,8 +477,7 @@ class OllamaNode(Node):
             Empty,
             '/speech_recognition/hotword_detected',
             self.hotword_callback,
-            10,
-            callback_group=self.callback_group
+            10
         )
 
         # Speech processing counter
@@ -481,18 +488,17 @@ class OllamaNode(Node):
             model=self.model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            max_conversation_history=self.max_conversation_history
+            max_conversation_history=self.max_conversation_history,
+            max_linear_speed=self.max_linear_speed,
+            max_angular_speed=self.max_angular_speed,
+            inplace_rotation_speed=self.inplace_rotation_speed
         )
 
-        # Thread executor for async operations
-        self.thread_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=2)
+        # No thread executor needed - direct processing
 
         # Create timers
-        self.create_timer(5.0, self.heartbeat_callback,
-                          callback_group=self.callback_group)
-        self.create_timer(15.0, self.check_subscriptions,
-                          callback_group=self.callback_group)
+        self.create_timer(5.0, self.heartbeat_callback)
+        self.create_timer(15.0, self.check_subscriptions)
 
         self.get_logger().info(
             f'Ollama Node initialized with model: {self.model}')
@@ -514,62 +520,32 @@ class OllamaNode(Node):
             f'=== SPEECH #{self.speech_count} RECOGNIZED: "{speech_text}" ===')
         self.get_logger().info(
             f'Speech callback is working! Count: {self.speech_count}')
-        self.get_logger().info(
-            f'ROS2 callback thread: {threading.current_thread().name}')
+        self.get_logger().info('Processing speech in main thread')
 
-        # Process with AI Agent using thread executor
+        # Process with AI Agent directly
         self.get_logger().info(
             f'Processing speech #{self.speech_count} with AI Agent...')
         try:
-            # Submit to thread executor to avoid blocking ROS2 callbacks
-            future = self.thread_executor.submit(
-                self._run_async_speech_processing, speech_text)
-            future.add_done_callback(self._speech_processing_done)
+            # Measure total processing time
+            processing_start_time = time.time()
             self.get_logger().info(
-                f'Speech #{self.speech_count} processing submitted to thread executor')
-        except Exception as e:
-            self.get_logger().error(
-                f'Error submitting speech processing: {str(e)}')
+                f'Starting AI Agent processing for: "{speech_text}" at {processing_start_time:.3f}')
 
-    def _run_async_speech_processing(self, speech_text: str):
-        """Run async speech processing in a separate thread"""
-        try:
-            # Create new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                self._process_speech_with_agent(speech_text))
-        except Exception as e:
-            self.get_logger().error(
-                f'Error in async speech processing: {str(e)}')
-        finally:
-            loop.close()
+            # Process with AI Agent directly (no async)
+            response = self.agent.process_with_llm(speech_text)
 
-    async def _process_speech_with_agent(self, speech_text: str):
-        """Process speech with AI Agent"""
-        try:
-            self.get_logger().info(
-                f'Starting AI Agent processing for: "{speech_text}"')
-
-            # Process with AI Agent
-            response = await self.agent.process_with_llm(speech_text)
+            processing_end_time = time.time()
+            processing_duration = processing_end_time - processing_start_time
 
             self.get_logger().info(
                 f'AI Agent processing completed: {response}')
+            self.get_logger().info(
+                f'Total processing time: {processing_duration:.3f} seconds')
+            self.get_logger().info('Speech processing completed successfully')
+            self.get_logger().info('Node is ready for next speech input')
 
         except Exception as e:
             self.get_logger().error(f'Error in AI Agent processing: {str(e)}')
-
-    def _speech_processing_done(self, future):
-        """Callback when speech processing is complete"""
-        try:
-            result = future.result()
-            self.get_logger().info('Speech processing completed successfully')
-            self.get_logger().info('Node is ready for next speech input')
-            self.get_logger().info(
-                f'Completion callback thread: {threading.current_thread().name}')
-        except Exception as e:
-            self.get_logger().error(f'Speech processing failed: {str(e)}')
             self.get_logger().error('Node may need restart to continue listening')
 
     def hotword_callback(self, msg: Empty):
@@ -595,10 +571,6 @@ class OllamaNode(Node):
         if hasattr(self, 'agent'):
             self.agent.cleanup()
 
-        # Shutdown thread executor
-        if hasattr(self, 'thread_executor'):
-            self.thread_executor.shutdown(wait=True)
-
 
 def main(args=None):
     rclpy.init(args=args)
@@ -606,29 +578,18 @@ def main(args=None):
     try:
         node = OllamaNode()
 
-        # Use MultiThreadedExecutor with more threads for concurrent operations
-        executor = MultiThreadedExecutor(num_threads=4)
-        executor.add_node(node)
-
         # Log that we're ready to process speech
         node.get_logger().info(
             "Ollama Node ready to process speech! Listening for hotwords and speech recognition...")
 
         try:
-            # Spin in a separate thread to keep the main thread responsive
-            executor_thread = threading.Thread(
-                target=executor.spin, daemon=True)
-            executor_thread.start()
-
-            # Keep the main thread alive
-            while rclpy.ok():
-                time.sleep(0.1)
+            # Simple node spin - no executor
+            rclpy.spin(node)
 
         except KeyboardInterrupt:
             node.get_logger().info("Keyboard interrupt received, shutting down...")
         finally:
             node.cleanup()
-            executor.shutdown()
             node.destroy_node()
             rclpy.shutdown()
 

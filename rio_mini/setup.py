@@ -32,6 +32,7 @@ setup(
         'console_scripts': [
             'webrtc_node = rio_mini.webrtc_node:main',
             'ollama_node = rio_mini.nodes.ollama_node:main',
+            'environment_node = rio_mini.nodes.environment_node:main',
         ],
     },
 )

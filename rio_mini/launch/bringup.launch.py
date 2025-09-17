@@ -54,8 +54,22 @@ def generate_launch_description():
         package='rio_mini',
         executable='ollama_node',
         name='ollama_node',
+        parameters=[
+            os.path.join(get_package_share_directory(
+                'rio_mini'), 'config', 'llm_config.yaml'),
+            os.path.join(get_package_share_directory(
+                'rio_mini'), 'config', 'robot_params.yaml')
+        ],
+        output='screen'
+    )
+
+    # Environment Node
+    environment_node = Node(
+        package='rio_mini',
+        executable='environment_node',
+        name='environment_node',
         parameters=[os.path.join(get_package_share_directory(
-            'rio_mini'), 'config', 'llm_config.yaml')],
+            'rio_mini'), 'config', 'sensor_thresholds.yaml')],
         output='screen'
     )
 
@@ -65,5 +79,6 @@ def generate_launch_description():
         rosbridge_node,
         rosapi_node,
         micro_ros_agent,
-        ollama_node
+        ollama_node,
+        environment_node
     ])

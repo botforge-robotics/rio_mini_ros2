@@ -14,11 +14,11 @@ from typing import Dict, Any
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from rclpy.callback_groups import ReentrantCallbackGroup
+# No callback groups needed - single threaded
 
 # ROS2 message types
-from std_msgs.msg import String, Bool, ColorRGBA, Int32
-from geometry_msgs.msg import Twist
+from std_msgs.msg import String, Bool, ColorRGBA, Int32, Float32, Header
+from geometry_msgs.msg import Twist, TwistStamped
 
 # RIO interfaces
 from rio_interfaces.action import TTS, Auth
@@ -40,44 +40,64 @@ class RobotController:
             rclpy.init()
 
         self.node = Node('robot_controller')
-        self.callback_group = ReentrantCallbackGroup()
+
+        # Declare robot movement parameters
+        self._declare_parameters()
 
         # Initialize ROS2 interfaces
         self._init_ros2_interfaces()
 
         self.logger.info("RobotController initialized successfully")
 
+    def _declare_parameters(self):
+        """Declare robot movement parameters"""
+        # Head movement parameters
+        self.node.declare_parameter('robot_movement.head.top_position', 150)
+        self.node.declare_parameter('robot_movement.head.bottom_position', 180)
+        self.node.declare_parameter('robot_movement.head.front_position', 165)
+        self.node.declare_parameter(
+            'robot_movement.head.gesture_duration', 0.8)
+        self.node.declare_parameter('robot_movement.head.gesture_speed', 0.5)
+
+        # Movement parameters
+        self.node.declare_parameter(
+            'robot_movement.movement.max_linear_speed', 0.3)
+        self.node.declare_parameter(
+            'robot_movement.movement.max_angular_speed', 2.0)
+        self.node.declare_parameter(
+            'robot_movement.movement.default_duration', 0.5)
+
     def _init_ros2_interfaces(self):
         """Initialize ROS2 publishers, subscribers, and clients"""
         # Publishers
         self.twist_pub = self.node.create_publisher(
-            Twist, '/cmd_vel', 10, callback_group=self.callback_group)
+            TwistStamped, '/cmd_vel', 10)
 
         self.led_pub = self.node.create_publisher(
-            ColorRGBA, '/led_color', 10, callback_group=self.callback_group)
+            ColorRGBA, '/led_color', 10)
 
         self.torch_pub = self.node.create_publisher(
-            Bool, '/torch', 10, callback_group=self.callback_group)
+            Bool, '/torch', 10)
 
         self.head_pitch_pub = self.node.create_publisher(
-            Int32, '/head_pitch', 10, callback_group=self.callback_group)
+            Float32, '/head_pitch', 10)
 
         # Service clients
         self.expression_client = self.node.create_client(
-            Expression, '/set_expression', callback_group=self.callback_group)
+            Expression, '/set_expression')
 
         self.get_expression_client = self.node.create_client(
-            GetExpression, '/get_expression', callback_group=self.callback_group)
+            GetExpression, '/get_expression')
 
         self.camera_client = self.node.create_client(
-            Camera, '/enable_camera', callback_group=self.callback_group)
+            Camera, '/enable_camera')
 
         # Action clients
         self.tts_client = ActionClient(
-            self.node, TTS, '/tts', callback_group=self.callback_group)
+            self.node, TTS, '/tts')
 
         self.auth_client = ActionClient(
-            self.node, Auth, '/auth', callback_group=self.callback_group)
+            self.node, Auth, '/auth')
 
         self.logger.info("ROS2 interfaces initialized")
 
@@ -163,15 +183,32 @@ class RobotController:
     def move_robot(self, linear_x: float = 0.0, linear_y: float = 0.0, angular_z: float = 0.0) -> Dict[str, Any]:
         """Move the robot with specified linear and angular velocities."""
         try:
+            # Convert string arguments to float if needed
+            linear_x = float(linear_x) if isinstance(
+                linear_x, str) else linear_x
+            linear_y = float(linear_y) if isinstance(
+                linear_y, str) else linear_y
+            angular_z = float(angular_z) if isinstance(
+                angular_z, str) else angular_z
+
             logger.info(
                 f"Moving robot: linear_x={linear_x}, linear_y={linear_y}, angular_z={angular_z}")
 
-            twist = Twist()
-            twist.linear.x = float(linear_x)
-            twist.linear.y = float(linear_y)
-            twist.angular.z = float(angular_z)
+            # Create TwistStamped message
+            from geometry_msgs.msg import TwistStamped
+            from std_msgs.msg import Header
+            twist_stamped = TwistStamped()
+            twist_stamped.header = Header()
+            twist_stamped.header.stamp = self.node.get_clock().now().to_msg()
+            twist_stamped.header.frame_id = 'base_link'
+            twist_stamped.twist.linear.x = float(linear_x)
+            twist_stamped.twist.linear.y = float(linear_y)
+            twist_stamped.twist.linear.z = 0.0
+            twist_stamped.twist.angular.x = 0.0
+            twist_stamped.twist.angular.y = 0.0
+            twist_stamped.twist.angular.z = float(angular_z)
 
-            self.twist_pub.publish(twist)
+            self.twist_pub.publish(twist_stamped)
             time.sleep(0.1)  # Brief pause for movement
 
             return {
@@ -182,6 +219,73 @@ class RobotController:
 
         except Exception as e:
             error_msg = f"Error in move_robot: {str(e)}"
+            logger.error(error_msg)
+            return {"status": "error", "message": error_msg}
+
+    def move_with_duration(self, linear_x: float = 0.0, angular_z: float = 0.0, duration: float = 0.5) -> Dict[str, Any]:
+        """Move the robot with specified velocities for a specific duration, then stop."""
+        try:
+            # Convert string arguments to float if needed
+            linear_x = float(linear_x) if isinstance(
+                linear_x, str) else linear_x
+            angular_z = float(angular_z) if isinstance(
+                angular_z, str) else angular_z
+            duration = float(duration) if isinstance(
+                duration, str) else duration
+
+            logger.info(
+                f"Moving robot with duration: linear_x={linear_x}, angular_z={angular_z}, duration={duration}s")
+
+            # Apply safety limits
+            # Clamp between 0.1 and 2.0 seconds
+            duration = max(0.1, min(2.0, duration))
+            linear_x = max(-0.45, min(0.45, linear_x))  # Clamp linear speed
+            angular_z = max(-2.0, min(2.0, angular_z))  # Clamp angular speed
+
+            # Create TwistStamped message
+            from geometry_msgs.msg import TwistStamped
+            from std_msgs.msg import Header
+            twist_stamped = TwistStamped()
+            twist_stamped.header = Header()
+            twist_stamped.header.stamp = self.node.get_clock().now().to_msg()
+            twist_stamped.header.frame_id = 'base_link'
+            twist_stamped.twist.linear.x = float(linear_x)
+            twist_stamped.twist.linear.y = 0.0  # Differential drive: ignore linear_y
+            twist_stamped.twist.linear.z = 0.0  # No vertical movement
+            twist_stamped.twist.angular.x = 0.0  # No roll
+            twist_stamped.twist.angular.y = 0.0  # No pitch
+            twist_stamped.twist.angular.z = float(angular_z)
+
+            # Publish movement command
+            self.twist_pub.publish(twist_stamped)
+
+            # Wait for specified duration
+            time.sleep(duration)
+
+            # Stop the robot
+            stop_twist_stamped = TwistStamped()
+            stop_twist_stamped.header = Header()
+            stop_twist_stamped.header.stamp = self.node.get_clock().now().to_msg()
+            stop_twist_stamped.header.frame_id = 'base_link'
+            stop_twist_stamped.twist.linear.x = 0.0
+            stop_twist_stamped.twist.linear.y = 0.0
+            stop_twist_stamped.twist.linear.z = 0.0
+            stop_twist_stamped.twist.angular.x = 0.0
+            stop_twist_stamped.twist.angular.y = 0.0
+            stop_twist_stamped.twist.angular.z = 0.0
+            self.twist_pub.publish(stop_twist_stamped)
+
+            # Brief pause to ensure stop command is processed
+            time.sleep(0.1)
+
+            return {
+                "status": "success",
+                "message": f"Robot moved for {duration}s: linear_x={linear_x}, angular_z={angular_z}",
+                "movement": {"linear_x": linear_x, "angular_z": angular_z, "duration": duration}
+            }
+
+        except Exception as e:
+            error_msg = f"Error in move_with_duration: {str(e)}"
             logger.error(error_msg)
             return {"status": "error", "message": error_msg}
 
@@ -225,18 +329,42 @@ class RobotController:
             return {"status": "error", "message": error_msg}
 
     def control_head_pitch(self, angle: int) -> Dict[str, Any]:
-        """Control the pitch angle of the robot's head."""
+        """Control the pitch angle of the robot's head with safety limits."""
         try:
-            logger.info(f"Setting head pitch to: {angle} degrees")
+            # Convert string input to int if needed
+            if isinstance(angle, str):
+                angle = int(float(angle))
+            else:
+                angle = int(angle)
 
-            pitch_msg = Int32()
-            pitch_msg.data = int(angle)
+            # Get head movement limits from parameters
+            top_position = self.node.get_parameter(
+                'robot_movement.head.top_position').value
+            bottom_position = self.node.get_parameter(
+                'robot_movement.head.bottom_position').value
+
+            # Enforce head movement limits
+            if angle < top_position:
+                angle = top_position
+                logger.warning(
+                    f"Head angle {angle} below minimum {top_position}, clamping to {top_position}")
+            elif angle > bottom_position:
+                angle = bottom_position
+                logger.warning(
+                    f"Head angle {angle} above maximum {bottom_position}, clamping to {bottom_position}")
+
+            logger.info(
+                f"Setting head pitch to: {angle} degrees (limits: {top_position}-{bottom_position})")
+
+            pitch_msg = Float32()
+            pitch_msg.data = float(angle)
             self.head_pitch_pub.publish(pitch_msg)
 
             return {
                 "status": "success",
-                "message": f"Head pitch set to: {angle} degrees",
-                "angle": angle
+                "message": f"Head pitch set to: {angle} degrees (limits: {top_position}-{bottom_position})",
+                "angle": angle,
+                "limits": f"{top_position}-{bottom_position}"
             }
 
         except Exception as e:
@@ -247,16 +375,22 @@ class RobotController:
     def set_torch(self, on: bool) -> Dict[str, Any]:
         """Set the robot's torch (flashlight) on or off."""
         try:
-            logger.info(f"Setting torch: {on}")
+            # Ensure boolean conversion
+            torch_state = bool(on)
+            logger.info(
+                f"Setting torch: {torch_state} (input was: {on}, type: {type(on)})")
 
             torch_msg = Bool()
-            torch_msg.data = bool(on)
+            torch_msg.data = torch_state
             self.torch_pub.publish(torch_msg)
+
+            # Brief pause to ensure message is sent
+            time.sleep(0.1)
 
             return {
                 "status": "success",
-                "message": f"Torch {'enabled' if on else 'disabled'}",
-                "torch_on": on
+                "message": f"Torch {'enabled' if torch_state else 'disabled'}",
+                "torch_on": torch_state
             }
 
         except Exception as e:
@@ -388,13 +522,13 @@ def get_robot_tools():
             'type': 'function',
             'function': {
                 'name': 'set_expression',
-                'description': 'Set robot facial expression to display emotions',
+                'description': 'Set robot facial expression',
                 'parameters': {
                     'type': 'object',
                     'properties': {
                         'expression': {
                             'type': 'string',
-                            'description': 'The expression to display (neutral, happy, sad, speaking, thinking, confused, surprised, angry, sleeping)',
+                            'description': 'Expression: happy, sad, neutral, surprised, thinking',
                         },
                     },
                     'required': ['expression'],
@@ -421,26 +555,14 @@ def get_robot_tools():
         {
             'type': 'function',
             'function': {
-                'name': 'move_robot',
-                'description': 'Move the robot with specified linear and angular velocities',
+                'name': 'move_with_duration',
+                'description': 'Move robot safely with auto-stop',
                 'parameters': {
                     'type': 'object',
                     'properties': {
-                        'linear_x': {
-                            'type': 'number',
-                            'description': 'Forward/backward velocity in meters per second (-1.0 to 1.0)',
-                            'default': 0.0,
-                        },
-                        'linear_y': {
-                            'type': 'number',
-                            'description': 'Left/right velocity in meters per second (-1.0 to 1.0)',
-                            'default': 0.0,
-                        },
-                        'angular_z': {
-                            'type': 'number',
-                            'description': 'Rotational velocity in radians per second (-3.14 to 3.14)',
-                            'default': 0.0,
-                        },
+                        'linear_x': {'type': 'number', 'description': 'Forward speed (-0.45 to 0.45)'},
+                        'angular_z': {'type': 'number', 'description': 'Turn speed (-2.0 to 2.0)'},
+                        'duration': {'type': 'number', 'description': 'Move time (0.1 to 2.0)'},
                     },
                     'required': [],
                 },
@@ -450,14 +572,11 @@ def get_robot_tools():
             'type': 'function',
             'function': {
                 'name': 'set_led_color',
-                'description': 'Set the color of the robot\'s LED lights',
+                'description': 'Set LED color',
                 'parameters': {
                     'type': 'object',
                     'properties': {
-                        'color': {
-                            'type': 'string',
-                            'description': 'The color to set the LEDs to (red, green, blue, yellow, purple, cyan, white, off)',
-                        },
+                        'color': {'type': 'string', 'description': 'Color: red, green, blue, yellow, purple, cyan, white, off'},
                     },
                     'required': ['color'],
                 },
@@ -467,14 +586,11 @@ def get_robot_tools():
             'type': 'function',
             'function': {
                 'name': 'control_head_pitch',
-                'description': 'Control the pitch angle of the robot\'s head',
+                'description': 'Control head pitch angle (150-180 degrees: 150=up, 165=front, 180=down)',
                 'parameters': {
                     'type': 'object',
                     'properties': {
-                        'angle': {
-                            'type': 'integer',
-                            'description': 'The pitch angle in degrees (-30 to 30)',
-                        },
+                        'angle': {'type': 'integer', 'description': 'Head pitch angle in degrees (150-180: 150=up, 165=front, 180=down)'},
                     },
                     'required': ['angle'],
                 },
@@ -484,14 +600,11 @@ def get_robot_tools():
             'type': 'function',
             'function': {
                 'name': 'set_torch',
-                'description': 'Set the robot\'s torch (flashlight) on or off',
+                'description': 'Set torch on/off',
                 'parameters': {
                     'type': 'object',
                     'properties': {
-                        'on': {
-                            'type': 'boolean',
-                            'description': 'Whether to turn the torch on (true) or off (false)',
-                        },
+                        'on': {'type': 'boolean', 'description': 'Turn torch on (true) or off (false)'},
                     },
                     'required': ['on'],
                 },
@@ -501,14 +614,11 @@ def get_robot_tools():
             'type': 'function',
             'function': {
                 'name': 'enable_camera',
-                'description': 'Enable or disable the robot\'s camera',
+                'description': 'Enable/disable camera',
                 'parameters': {
                     'type': 'object',
                     'properties': {
-                        'enable': {
-                            'type': 'boolean',
-                            'description': 'Whether to enable or disable the camera',
-                        },
+                        'enable': {'type': 'boolean', 'description': 'Enable (true) or disable (false) camera'},
                     },
                     'required': ['enable'],
                 },
@@ -518,15 +628,11 @@ def get_robot_tools():
             'type': 'function',
             'function': {
                 'name': 'biometric_authentication',
-                'description': 'Perform biometric authentication using the robot\'s sensors',
+                'description': 'Perform biometric authentication',
                 'parameters': {
                     'type': 'object',
                     'properties': {
-                        'message': {
-                            'type': 'string',
-                            'description': 'Message to display to user during authentication',
-                            'default': 'Please authenticate to continue'
-                        },
+                        'message': {'type': 'string', 'description': 'Auth message'},
                     },
                     'required': [],
                 },
@@ -550,15 +656,30 @@ def execute_tool(tool_name: str, arguments: dict) -> dict:
                 arguments.get('linear_y', 0.0),
                 arguments.get('angular_z', 0.0)
             )
+        elif tool_name == 'move_with_duration':
+            return robot.move_with_duration(
+                arguments.get('linear_x', 0.0),
+                arguments.get('angular_z', 0.0),
+                arguments.get('duration', 0.5)
+            )
         elif tool_name == 'set_led_color':
             return robot.set_led_color(arguments['color'])
         elif tool_name == 'control_head_pitch':
             return robot.control_head_pitch(arguments['angle'])
         # Support both names for backward compatibility
         elif tool_name == 'set_torch' or tool_name == 'toggle_torch':
-            return robot.set_torch(arguments['on'])
+            # Convert string 'True'/'False' to boolean
+            on_value = arguments['on']
+            if isinstance(on_value, str):
+                on_value = on_value.lower() in ['true', '1', 'yes', 'on']
+            return robot.set_torch(on_value)
         elif tool_name == 'enable_camera':
-            return robot.enable_camera(arguments['enable'])
+            # Convert string 'True'/'False' to boolean
+            enable_value = arguments['enable']
+            if isinstance(enable_value, str):
+                enable_value = enable_value.lower() in [
+                    'true', '1', 'yes', 'on']
+            return robot.enable_camera(enable_value)
         elif tool_name == 'biometric_authentication':
             return robot.biometric_authentication(arguments.get('message', 'Please authenticate to continue'))
         else:

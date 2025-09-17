@@ -1,40 +1,42 @@
-# Sensor Thresholds for Desktop Companion Robot
+# Sensor Thresholds and Environment Monitoring Configuration
 
-sensor_monitor_node:
+environment_node:
   ros__parameters:
-    # Battery Monitoring
-    battery:
-      low_threshold: 20.0 # Percentage
-      critical_threshold: 10.0 # Percentage
-      warning_threshold: 30.0 # Percentage
-
-    # IMU (Motion) Thresholds
+    # IMU (Motion) Thresholds - Y-axis acceleration only
     imu:
-      tilt_threshold: 5.0 # m/s² for tilt detection
-      shake_threshold: 8.0 # m/s² for shake detection
-      orientation_threshold: 30.0 # degrees for orientation change
+      tilt_threshold: 4.0 # m/s² for tilt detection (absolute value, no sign needed)
+      axis: "y" # Use Y-axis linear acceleration
 
-    # TOF (Distance) Sensor
+    # TOF (Distance) Sensor - Edge detection only
     tof:
-      edge_threshold: 0.55 # meters (55cm)
-      proximity_threshold: 0.30 # meters (30cm)
-      max_range: 6.0 # meters
-      min_range: 0.15 # meters
+      edge_threshold: 0.05 # meters (5cm) - triggers when distance > threshold
 
-    # Illuminance Sensor
+    # Illuminance Sensor - Bright and Dark only
     illuminance:
-      bright_threshold: 100.0 # lux
-      dim_threshold: 50.0 # lux
-      dark_threshold: 10.0 # lux
+      bright_threshold: 2000.0 # lux - triggers when illuminance > threshold
+      dark_threshold: 1.0 # lux - triggers when illuminance < threshold
 
-    # GPS (if available)
-    gps:
-      accuracy_threshold: 5.0 # meters
-      update_timeout: 30.0 # seconds
+    # Sensor Topic Names
+    sensor_topics:
+      imu_topic: "/imu/data"
+      tof_topic: "/tof"
+      illuminance_topic: "/illuminance"
 
-    # Speech Recognition
-    speech:
-      confidence_threshold: 0.7
-      timeout: 5.0 # seconds
-      min_length: 2 # characters
-      max_length: 200 # characters
+    # Sensor Message Types
+    sensor_types:
+      imu_type: "sensor_msgs/Imu"
+      tof_type: "sensor_msgs/Range"
+      illuminance_type: "sensor_msgs/Illuminance"
+
+    # Reaction Settings
+    reaction:
+      cooldown_period: 20.0 # seconds between reactions
+      enable_imu_reactions: true
+      enable_tof_reactions: true
+      enable_illuminance_reactions: true
+
+    # Monitoring Frequency
+    monitoring:
+      update_rate: 10.0 # Hz
+      threshold_check_rate: 5.0 # Hz
+
