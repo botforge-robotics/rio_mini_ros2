@@ -65,7 +65,7 @@ class RobotController:
         self.node.declare_parameter(
             'robot_movement.movement.max_angular_speed', 2.0)
         self.node.declare_parameter(
-            'robot_movement.movement.default_duration', 0.5)
+            'robot_movement.movement.default_duration', 3.0)
 
     def _init_ros2_interfaces(self):
         """Initialize ROS2 publishers, subscribers, and clients"""

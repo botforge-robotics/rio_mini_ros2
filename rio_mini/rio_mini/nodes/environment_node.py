@@ -411,14 +411,14 @@ class EnvironmentNode(Node):
             return (
                 "React or act for the below described scene, "
                 "You are being tilted and feel unstable. "
-                "Please stabilize me."
+                "ask user to please place safely on desk."
             )
 
         elif sensor_type == 'tof' and trigger_type == 'edge':
             return (
                 "React or act for the below described scene, "
                 "You detected an edge and might fall. "
-                "Please move me away from the edge."
+                "move back from edge."
             )
 
         elif sensor_type == 'illuminance' and trigger_type == 'bright':

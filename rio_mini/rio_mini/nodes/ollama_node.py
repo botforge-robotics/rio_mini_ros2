@@ -32,7 +32,8 @@ class OllamaAgent:
 
     def __init__(self, model: str = "llama3-groq-tool-use:8b",
                  temperature: float = 0.7, max_tokens: int = 1024, max_conversation_history: int = 5,
-                 max_linear_speed: float = 0.15, max_angular_speed: float = 2.0, inplace_rotation_speed: float = 7.0):
+                 max_linear_speed: float = 0.15, max_angular_speed: float = 2.0, inplace_rotation_speed: float = 7.0,
+                 default_duration: float = 3.0):
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -44,13 +45,14 @@ class OllamaAgent:
         self.max_linear_speed = max_linear_speed
         self.max_angular_speed = max_angular_speed
         self.inplace_rotation_speed = inplace_rotation_speed
+        self.default_duration = default_duration
 
         # Initialize Ollama client
         self.ollama_client = ollama.Client()
 
         logger.info(f"OllamaAgent initialized with model: {model}")
         logger.info(
-            f"Movement params: linear={max_linear_speed}, angular={max_angular_speed}, inplace={inplace_rotation_speed}")
+            f"Movement params: linear={max_linear_speed}, angular={max_angular_speed}, inplace={inplace_rotation_speed}, duration={default_duration}")
         logger.info(
             f"Available tools: {', '.join(tool['function']['name'] for tool in self.tools)}")
 
@@ -113,8 +115,8 @@ CORRECT FORMAT:
 
 EXAMPLES:
 - "turn on torch" → [{{"name": "speak_text", "arguments": {{"text": "Turning on torch"}}}}, {{"name": "set_torch", "arguments": {{"on": true}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
-- "turn right" → [{{"name": "speak_text", "arguments": {{"text": "Turning right"}}}}, {{"name": "move_with_duration", "arguments": {{"linear_x": 0, "angular_z": {self.inplace_rotation_speed}, "duration": 0.5}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
-- "move forward" → [{{"name": "speak_text", "arguments": {{"text": "Moving forward"}}}}, {{"name": "move_with_duration", "arguments": {{"linear_x": {self.max_linear_speed}, "angular_z": 0, "duration": 0.5}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
+- "turn right" → [{{"name": "speak_text", "arguments": {{"text": "Turning right"}}}}, {{"name": "move_with_duration", "arguments": {{"linear_x": 0, "angular_z": {self.inplace_rotation_speed}, "duration": {self.default_duration}}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
+- "move forward" → [{{"name": "speak_text", "arguments": {{"text": "Moving forward"}}}}, {{"name": "move_with_duration", "arguments": {{"linear_x": {self.max_linear_speed}, "angular_z": 0, "duration": {self.default_duration}}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
 - "look up" → [{{"name": "speak_text", "arguments": {{"text": "Looking up"}}}}, {{"name": "control_head_pitch", "arguments": {{"angle": 150}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
 - "look down" → [{{"name": "speak_text", "arguments": {{"text": "Looking down"}}}}, {{"name": "control_head_pitch", "arguments": {{"angle": 180}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
 
@@ -433,7 +435,7 @@ class OllamaNode(Node):
             'robot_movement.movement.max_angular_speed', 2.0)
         self.declare_parameter(
             'robot_movement.movement.inplace_rotation_speed', 7.0)
-        self.declare_parameter('robot_movement.movement.default_duration', 0.5)
+        self.declare_parameter('robot_movement.movement.default_duration', 3.0)
 
         # Get parameters
         self.model = self.get_parameter('model').value
@@ -491,7 +493,8 @@ class OllamaNode(Node):
             max_conversation_history=self.max_conversation_history,
             max_linear_speed=self.max_linear_speed,
             max_angular_speed=self.max_angular_speed,
-            inplace_rotation_speed=self.inplace_rotation_speed
+            inplace_rotation_speed=self.inplace_rotation_speed,
+            default_duration=self.default_duration
         )
 
         # No thread executor needed - direct processing
