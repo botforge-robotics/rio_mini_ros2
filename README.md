@@ -15,11 +15,22 @@
   - [⚙️ Requirements](#️-requirements)
     - [Hardware Requirements](#hardware-requirements)
       - [ESP32 Robot Platform](#esp32-robot-platform-1)
-      - [Mobile App (Sensor Suite)](#mobile-app-sensor-suite-1)
     - [Software Requirements](#software-requirements)
       - [PC/Laptop (ROS2)](#pclaptop-ros2)
       - [ESP32 Robot base](#esp32-robot-base)
       - [Mobile App](#mobile-app)
+  - [🔧 Circuit Assembly Instructions](#-circuit-assembly-instructions)
+    - [Wiring Diagram](#wiring-diagram)
+    - [Power Distribution](#power-distribution)
+    - [Component Connections](#component-connections)
+      - [I2C Communication (ToF Sensor)](#i2c-communication-tof-sensor)
+      - [Motor Control (MX1508 Driver)](#motor-control-mx1508-driver)
+      - [Servo Control](#servo-control)
+      - [LED Control](#led-control)
+  - [⚠️ Assembly Suggestions](#️-assembly-suggestions)
+    - [1. Motor and Wheel Mounting](#1-motor-and-wheel-mounting)
+    - [2. Servo Arm Assembly](#2-servo-arm-assembly)
+    - [3. Top Case Bonding](#3-top-case-bonding)
   - [🚀 Getting Started](#-getting-started)
     - [1. Environment Setup](#1-environment-setup)
       - [1.1 ROS2 Setup](#11-ros2-setup)
@@ -151,10 +162,11 @@
 | **Aluminum Servo Horn 25T**                          | 1       | ₹34                | ₹34                 | [Robu.in](https://robu.in/product/aluminum-servo-hornarm-25t-round-type-disc-mg995-mg996/)                                                                    |
 | **Mobile Holder**                                    | 1       | ₹130               | ₹130                | [Amazon.in](https://amazon.in/dp/B095C56NYD?ref=ppx_yo2ov_dt_b_fed_asin_title)                                                                                |
 | **Screws & Fasteners**                               | 1 set   | ₹25                | ₹25                 | _Available at local hardware stores_                                                                                                                          |
+| **Slide Switch**                                     | 1       | ₹3                 | ₹3                  | [Robu.in](https://robu.in/product/1-month-warranty-254/)                                                                                                      |
 | **3D Printed Body Parts**                            | 1 set   | ₹50                | ₹50                 | _Custom 3D printing service_                                                                                                                                  |
 | **RIO Ros2Sense Mobile App**                         | 1       | ₹990               | ₹990                | [Google Play Store](https://play.google.com/store/apps/details?id=com.botforge.rio&hl=en_IN)                                                                  |
 |                                                      |         |                    |                     |                                                                                                                                                               |
-| **📊 TOTAL PROJECT COST**                            |         |                    | **₹3,401**          |                                                                                                                                                               |
+| **📊 TOTAL PROJECT COST**                            |         |                    | **₹3,404**          |                                                                                                                                                               |
 
 **Additional Notes:**
 
@@ -163,9 +175,9 @@
 - Some components may be available at local electronics stores at different prices
 - 3D printed parts require access to 3D printing services or personal 3D printer
 
-#### Mobile App (Sensor Suite)
+**Reference Links:**
 
-- **Android Smartphone** with [RIO Ros2Sense App](https://play.google.com/store/apps/details?id=com.botforge.rio&hl=en_IN)
+- **3D Model & Assembly**: [RIO Mini 3D Model Repository](https://github.com/botforge-robotics/rio_mini_3d_model)
 
 ### Software Requirements
 
@@ -176,11 +188,93 @@
 
 #### ESP32 Robot base
 
-- **Micro-ROS Firmware**
+- **Micro-ROS Firmware**: [RIO Mini Firmware Repository](https://github.com/botforge-robotics/rio_mini_firmware)
 
 #### Mobile App
 
 - **[RIO Ros2Sense App](https://play.google.com/store/apps/details?id=com.botforge.rio&hl=en_IN)** (Google Play Store) - ₹990
+
+## 🔧 Circuit Assembly Instructions
+
+### Wiring Diagram
+
+![RIO Mini Circuit Schematic](https://raw.githubusercontent.com/botforge-robotics/rio_mini_3d_model/refs/heads/master/images/rio_mini_schematic.jpg)
+
+### Power Distribution
+
+```
+[LiPo 3.7V]
+   |
+ [Slide Switch]
+   |
+ [IP5306]----5V----+---- ESP32 VIN/5V
+   |               +---- MX1508 VM
+  GND--------------+---- (COMMON GND)
+                   +---- Servo V+
+                   +---- WS2812B V+
+                   +---- TOF V+
+```
+
+### Component Connections
+
+#### I2C Communication (ToF Sensor)
+
+```
+ESP32 GPIO21 (SDA) ---- ToF SDA
+ESP32 GPIO22 (SCL) ---- ToF SCL
+```
+
+#### Motor Control (MX1508 Driver)
+
+```
+ESP32 GPIO25 ---- MX1508 IN1   -> Motor Left
+ESP32 GPIO26 ---- MX1508 IN2   -> Motor Left
+ESP32 GPIO27 ---- MX1508 IN3   -> Motor Right
+ESP32 GPIO13 ---- MX1508 IN4   -> Motor Right
+MX1508 OUTA+/- -> Motor Left terminals
+MX1508 OUTB+/- -> Motor Right terminals
+```
+
+#### Servo Control
+
+```
+ESP32 GPIO17 ---- Servo Signal (MG996R)
+```
+
+#### LED Control
+
+```
+ESP32 GPIO16 ---> WS2812 DIN
+```
+
+## ⚠️ Assembly Suggestions
+
+### 1. Motor and Wheel Mounting
+
+![Wheel Gap Measurement](https://raw.githubusercontent.com/botforge-robotics/rio_mini_3d_model/refs/heads/master/images/wheelgap.jpg)
+
+**Important**: While mounting motors and wheels, ensure there is **no more than 1.5mm gap** between the wheel and bottom base edge. If the gap exceeds this limit, it may obstruct the other wheel edge when the top case is installed.
+
+### 2. Servo Arm Assembly
+
+![Arm Assembly](https://raw.githubusercontent.com/botforge-robotics/rio_mini_3d_model/refs/heads/master/images/armAssembling.jpg)
+
+**Critical Steps**:
+
+- The arm should be positioned **between the servo horn and servo body**
+- **Set servo to 180° position** before mounting the arm to the servo
+- Upload the firmware first - it automatically sets the servo to 180° position
+- Only mount the arm after confirming the servo is at 180°
+
+### 3. Top Case Bonding
+
+![Glueing Process](https://raw.githubusercontent.com/botforge-robotics/rio_mini_3d_model/refs/heads/master/images/glueing.jpg)
+
+**Final Assembly**:
+
+- Use **Cynabond** adhesive to securely bond the top 2 parts after arm assembly
+- Ensure proper alignment before applying adhesive
+- Allow sufficient curing time as per adhesive instructions
 
 ## 🚀 Getting Started
 
