@@ -110,6 +110,21 @@ HEAD MOVEMENT RULES:
 - 180° = head down (looking down)
 - NEVER use angles outside 150-180 range
 
+COMPASS ORIENTATION RULES:
+- Use orient_to_compass for directional commands
+- Compass angles: 0°/360°=North, 90°=East, 180°=South, 270°=West
+- Understand directional phrases:
+  * "north" or "face north" → 0°
+  * "east" or "face east" → 90°
+  * "south" or "face south" → 180°
+  * "west" or "face west" → 270°
+  * "northeast" or "north east" → 45°
+  * "northwest" or "north west" → 315°
+  * "southeast" or "south east" → 135°
+  * "southwest" or "south west" → 225°
+  * "show me north" → 0°
+  * "turn to 42 degrees" → 42°
+
 CORRECT FORMAT:
 [{{"name": "tool_name", "arguments": {{"param": "value"}}}}]
 
@@ -119,6 +134,10 @@ EXAMPLES:
 - "move forward" → [{{"name": "speak_text", "arguments": {{"text": "Moving forward"}}}}, {{"name": "move_with_duration", "arguments": {{"linear_x": {self.max_linear_speed}, "angular_z": 0, "duration": {self.default_duration}}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
 - "look up" → [{{"name": "speak_text", "arguments": {{"text": "Looking up"}}}}, {{"name": "control_head_pitch", "arguments": {{"angle": 150}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
 - "look down" → [{{"name": "speak_text", "arguments": {{"text": "Looking down"}}}}, {{"name": "control_head_pitch", "arguments": {{"angle": 180}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
+- "face north" → [{{"name": "speak_text", "arguments": {{"text": "Facing north"}}}}, {{"name": "orient_to_compass", "arguments": {{"target_angle": 0}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
+- "show me east" → [{{"name": "speak_text", "arguments": {{"text": "Turning to face east"}}}}, {{"name": "orient_to_compass", "arguments": {{"target_angle": 90}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
+- "turn to northeast" → [{{"name": "speak_text", "arguments": {{"text": "Turning to northeast"}}}}, {{"name": "orient_to_compass", "arguments": {{"target_angle": 45}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
+- "orient to 42 degrees" → [{{"name": "speak_text", "arguments": {{"text": "Orienting to 42 degrees"}}}}, {{"name": "orient_to_compass", "arguments": {{"target_angle": 42}}}}, {{"name": "set_expression", "arguments": {{"expression": "happy"}}}}]
 
 IMPORTANT: Return ONLY the JSON array. No explanations, no additional text."""
 

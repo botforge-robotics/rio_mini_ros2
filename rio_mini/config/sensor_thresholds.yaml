@@ -4,17 +4,17 @@ environment_node:
   ros__parameters:
     # IMU (Motion) Thresholds - Y-axis acceleration only
     imu:
-      tilt_threshold: 4.0 # m/s² for tilt detection (absolute value, no sign needed)
+      tilt_threshold: 7.0 # m/s² for tilt detection (absolute value, no sign needed)
       axis: "y" # Use Y-axis linear acceleration
 
     # TOF (Distance) Sensor - Edge detection only
     tof:
-      edge_threshold: 0.05 # meters (5cm) - triggers when distance > threshold
+      edge_threshold: 0.10 # meters (10cm) - triggers when distance > threshold
 
     # Illuminance Sensor - Bright and Dark only
     illuminance:
       bright_threshold: 2000.0 # lux - triggers when illuminance > threshold
-      dark_threshold: 1.0 # lux - triggers when illuminance < threshold
+      dark_threshold: 0.3 # lux - triggers when illuminance < threshold
 
     # Sensor Topic Names
     sensor_topics:

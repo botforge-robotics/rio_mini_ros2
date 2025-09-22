@@ -65,7 +65,13 @@ class RobotController:
         self.node.declare_parameter(
             'robot_movement.movement.max_angular_speed', 2.0)
         self.node.declare_parameter(
+            'robot_movement.movement.inplace_rotation_speed', 7.0)
+        self.node.declare_parameter(
             'robot_movement.movement.default_duration', 3.0)
+        self.node.declare_parameter(
+            'robot_movement.movement.compass_threshold', 5.0)
+        self.node.declare_parameter(
+            'robot_movement.movement.compass_timeout', 8.0)
 
     def _init_ros2_interfaces(self):
         """Initialize ROS2 publishers, subscribers, and clients"""
@@ -398,6 +404,219 @@ class RobotController:
             logger.error(error_msg)
             return {"status": "error", "message": error_msg}
 
+    def orient_to_compass(self, target_angle: float) -> Dict[str, Any]:
+        """Rotate robot to face a specific compass direction using IMU heading."""
+        try:
+            logger.info(
+                f"orient_to_compass called with target_angle: {target_angle} (type: {type(target_angle)})")
+
+            # Convert string input to float if needed
+            if isinstance(target_angle, str):
+                target_angle = float(target_angle)
+            else:
+                target_angle = float(target_angle)
+
+            logger.info(f"Converted target_angle to float: {target_angle}")
+
+            # Adjust for mobile phone landscape orientation (-90 degrees)
+            # Mobile is mounted in landscape, so we need to compensate
+            adjusted_target = (target_angle - 90) % 360
+            if adjusted_target < 0:
+                adjusted_target += 360
+
+            logger.info(
+                f"Orienting to compass angle: {target_angle}° (adjusted: {adjusted_target}°)")
+
+            # Get movement parameters
+            inplace_rotation_speed = self.node.get_parameter(
+                'robot_movement.movement.inplace_rotation_speed').value
+            default_duration = self.node.get_parameter(
+                'robot_movement.movement.default_duration').value
+            compass_threshold = self.node.get_parameter(
+                'robot_movement.movement.compass_threshold').value
+            compass_timeout = self.node.get_parameter(
+                'robot_movement.movement.compass_timeout').value
+
+            logger.info(
+                f"Compass parameters: threshold={compass_threshold}°, timeout={compass_timeout}s")
+
+            # Subscribe to IMU heading topic
+            heading_subscription = None
+            current_heading = None
+            orientation_complete = False
+            rotation_timer = None
+
+            def heading_callback(msg):
+                nonlocal current_heading, orientation_complete
+                current_heading = msg.data
+                logger.info(f"IMU Heading received: {current_heading:.1f}°")
+
+                # Calculate shortest rotation path
+                angle_diff = (adjusted_target - current_heading) % 360
+                if angle_diff > 180:
+                    angle_diff -= 360
+
+                logger.info(
+                    f"Angle difference: {angle_diff:.1f}° (target: {adjusted_target:.1f}°)")
+
+                # Check if we're close enough (within threshold)
+                if abs(angle_diff) <= compass_threshold:
+                    orientation_complete = True
+                    logger.info(
+                        f"Orientation complete! Current: {current_heading:.1f}°, Target: {adjusted_target:.1f}°, Diff: {angle_diff:.1f}°")
+                    # Stop rotation timer
+                    if rotation_timer:
+                        self.node.destroy_timer(rotation_timer)
+                    return
+
+                # Determine rotation direction
+                if angle_diff > 0:
+                    # Rotate clockwise
+                    angular_z = inplace_rotation_speed
+                else:
+                    # Rotate counter-clockwise
+                    angular_z = -inplace_rotation_speed
+
+                # Create TwistStamped message for rotation
+                twist_stamped = TwistStamped()
+                twist_stamped.header.stamp = self.node.get_clock().now().to_msg()
+                twist_stamped.header.frame_id = 'base_link'
+                twist_stamped.twist.linear.x = 0.0
+                twist_stamped.twist.linear.y = 0.0
+                twist_stamped.twist.linear.z = 0.0
+                twist_stamped.twist.angular.x = 0.0
+                twist_stamped.twist.angular.y = 0.0
+                twist_stamped.twist.angular.z = float(angular_z)
+
+                self.twist_pub.publish(twist_stamped)
+                logger.info(
+                    f"Rotating: current={current_heading:.1f}°, target={adjusted_target:.1f}°, diff={angle_diff:.1f}°, angular_z={angular_z}")
+
+            def rotation_timer_callback():
+                # This timer ensures we keep rotating even if heading callback doesn't fire
+                if not orientation_complete:
+                    # Send a rotation command
+                    twist_stamped = TwistStamped()
+                    twist_stamped.header.stamp = self.node.get_clock().now().to_msg()
+                    twist_stamped.header.frame_id = 'base_link'
+                    twist_stamped.twist.linear.x = 0.0
+                    twist_stamped.twist.linear.y = 0.0
+                    twist_stamped.twist.linear.z = 0.0
+                    twist_stamped.twist.angular.x = 0.0
+                    twist_stamped.twist.angular.y = 0.0
+                    # Use default rotation speed
+                    twist_stamped.twist.angular.z = float(
+                        inplace_rotation_speed)
+                    self.twist_pub.publish(twist_stamped)
+                    logger.info("Sending rotation command via timer...")
+
+            # Create subscription
+            logger.info("Creating subscription to /imu/heading topic...")
+            heading_subscription = self.node.create_subscription(
+                Float32,
+                '/imu/heading',
+                heading_callback,
+                10
+            )
+            logger.info("Subscription created successfully")
+
+            # Create rotation timer (every 0.1 seconds)
+            rotation_timer = self.node.create_timer(
+                0.1, rotation_timer_callback)
+            logger.info("Rotation timer created")
+
+            # Wait for orientation to complete or timeout
+            start_time = time.time()
+            timeout = compass_timeout
+
+            # Start with a rotation command
+            initial_twist = TwistStamped()
+            initial_twist.header.stamp = self.node.get_clock().now().to_msg()
+            initial_twist.header.frame_id = 'base_link'
+            initial_twist.twist.linear.x = 0.0
+            initial_twist.twist.linear.y = 0.0
+            initial_twist.twist.linear.z = 0.0
+            initial_twist.twist.angular.x = 0.0
+            initial_twist.twist.angular.y = 0.0
+            initial_twist.twist.angular.z = float(inplace_rotation_speed)
+            self.twist_pub.publish(initial_twist)
+            logger.info("Started compass orientation rotation...")
+
+            while not orientation_complete and (time.time() - start_time) < timeout:
+                time.sleep(0.1)
+
+            # Stop robot movement
+            stop_twist = TwistStamped()
+            stop_twist.header.stamp = self.node.get_clock().now().to_msg()
+            stop_twist.header.frame_id = 'base_link'
+            stop_twist.twist.linear.x = 0.0
+            stop_twist.twist.linear.y = 0.0
+            stop_twist.twist.linear.z = 0.0
+            stop_twist.twist.angular.x = 0.0
+            stop_twist.twist.angular.y = 0.0
+            stop_twist.twist.angular.z = 0.0
+            self.twist_pub.publish(stop_twist)
+
+            # Clean up subscription and timer
+            if heading_subscription:
+                self.node.destroy_subscription(heading_subscription)
+            if rotation_timer:
+                self.node.destroy_timer(rotation_timer)
+
+            if orientation_complete:
+                return {
+                    "status": "success",
+                    "message": f"Successfully oriented to {target_angle}° (current heading: {current_heading:.1f}°)"
+                }
+            else:
+                # If no IMU data received, do a simple timed rotation
+                if current_heading is None:
+                    logger.warning(
+                        "No IMU heading data received, performing simple rotation")
+                    # Do a simple rotation for 2 seconds
+                    simple_twist = TwistStamped()
+                    simple_twist.header.stamp = self.node.get_clock().now().to_msg()
+                    simple_twist.header.frame_id = 'base_link'
+                    simple_twist.twist.linear.x = 0.0
+                    simple_twist.twist.linear.y = 0.0
+                    simple_twist.twist.linear.z = 0.0
+                    simple_twist.twist.angular.x = 0.0
+                    simple_twist.twist.angular.y = 0.0
+                    simple_twist.twist.angular.z = float(
+                        inplace_rotation_speed)
+
+                    # Rotate for 2 seconds
+                    for _ in range(20):  # 20 * 0.1s = 2s
+                        self.twist_pub.publish(simple_twist)
+                        time.sleep(0.1)
+
+                    # Stop
+                    stop_twist = TwistStamped()
+                    stop_twist.header.stamp = self.node.get_clock().now().to_msg()
+                    stop_twist.header.frame_id = 'base_link'
+                    stop_twist.twist.linear.x = 0.0
+                    stop_twist.twist.linear.y = 0.0
+                    stop_twist.twist.linear.z = 0.0
+                    stop_twist.twist.angular.x = 0.0
+                    stop_twist.twist.angular.y = 0.0
+                    stop_twist.twist.angular.z = 0.0
+                    self.twist_pub.publish(stop_twist)
+
+                    return {
+                        "status": "fallback",
+                        "message": f"Performed simple rotation to {target_angle}° (no IMU data available)"
+                    }
+                else:
+                    return {
+                        "status": "timeout",
+                        "message": f"Orientation timeout after {timeout}s (current heading: {current_heading:.1f}°)"
+                    }
+
+        except Exception as e:
+            error_msg = f"Error in compass orientation: {str(e)}"
+            logger.error(error_msg)
+            return {"status": "error", "message": error_msg}
+
     def enable_camera(self, enable: bool) -> Dict[str, Any]:
         """Enable or disable the robot's camera."""
         try:
@@ -571,6 +790,23 @@ def get_robot_tools():
         {
             'type': 'function',
             'function': {
+                'name': 'orient_to_compass',
+                'description': 'Rotate robot to face a specific compass direction using IMU heading (0-360 degrees)',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'target_angle': {
+                            'type': 'number',
+                            'description': 'Target compass angle in degrees (0-360: 0/360=North, 90=East, 180=South, 270=West)',
+                        },
+                    },
+                    'required': ['target_angle'],
+                },
+            },
+        },
+        {
+            'type': 'function',
+            'function': {
                 'name': 'set_led_color',
                 'description': 'Set LED color',
                 'parameters': {
@@ -682,6 +918,8 @@ def execute_tool(tool_name: str, arguments: dict) -> dict:
             return robot.enable_camera(enable_value)
         elif tool_name == 'biometric_authentication':
             return robot.biometric_authentication(arguments.get('message', 'Please authenticate to continue'))
+        elif tool_name == 'orient_to_compass':
+            return robot.orient_to_compass(arguments['target_angle'])
         else:
             return {"status": "error", "message": f"Unknown tool: {tool_name}"}
     except Exception as e:
