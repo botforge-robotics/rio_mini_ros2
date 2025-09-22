@@ -205,14 +205,15 @@
 ```
 [LiPo 3.7V]
    |
- [Slide Switch]
-   |
  [IP5306]----5V----+---- ESP32 VIN/5V
    |               +---- MX1508 VM
+   |               +---- Servo V+
+   |               +---- WS2812B V+
+   |               +---- TOF V+
+   |
+ [Slide Switch]
+   |
   GND--------------+---- (COMMON GND)
-                   +---- Servo V+
-                   +---- WS2812B V+
-                   +---- TOF V+
 ```
 
 ### Component Connections
