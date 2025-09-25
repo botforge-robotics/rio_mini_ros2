@@ -164,9 +164,9 @@
 | **Screws & Fasteners**                               | 1 set   | ₹25                | ₹25                 | _Available at local hardware stores_                                                                                                                          |
 | **Slide Switch**                                     | 1       | ₹3                 | ₹3                  | [Robu.in](https://robu.in/product/1-month-warranty-254/)                                                                                                      |
 | **3D Printed Body Parts**                            | 1 set   | ₹50                | ₹50                 | _Custom 3D printing service_                                                                                                                                  |
-| **RIO Ros2Sense Mobile App**                         | 1       | ₹990               | ₹990                | [Google Play Store](https://play.google.com/store/apps/details?id=com.botforge.rio&hl=en_IN)                                                                  |
+| **RIO Ros2Sense Mobile App**                         | 1       | ₹990               | ₹499                | [Google Play Store](https://play.google.com/store/apps/details?id=com.botforge.rio&hl=en_IN)                                                                  |
 |                                                      |         |                    |                     |                                                                                                                                                               |
-| **📊 TOTAL PROJECT COST**                            |         |                    | **₹3,404**          |                                                                                                                                                               |
+| **📊 TOTAL PROJECT COST**                            |         |                    | **₹2,913**          |                                                                                                                                                               |
 
 **Additional Notes:**
 
