@@ -192,7 +192,7 @@
 
 #### Mobile App
 
-- **[RIO Ros2Sense App](https://play.google.com/store/apps/details?id=com.botforge.rio&hl=en_IN)** (Google Play Store) - ₹990
+- **[RIO Ros2Sense App](https://play.google.com/store/apps/details?id=com.botforge.rio&hl=en_IN)** (Google Play Store) - ₹499
 
 ## 🔧 Circuit Assembly Instructions
 
